@@ -7,24 +7,14 @@ import (
 )
 
 func main() {
-	dsn := os.Getenv("DB_DSN")
-	if dsn == "" {
-		dsn = "file:vuln-notes.db?cache=shared&mode=rwc"
-	}
-	db, err := InitDB(dsn)
-	if err != nil {
-		log.Fatalf("init db: %v", err)
-	}
-	defer db.Close()
-	if err := SeedDB(db); err != nil {
-		log.Fatalf("seed db: %v", err)
-	}
+	store := NewStore()
+	store.Seed()
 
 	addr := os.Getenv("ADDR")
 	if addr == "" {
 		addr = ":8080"
 	}
-	srv := NewServer(db)
+	srv := NewServer(store)
 	log.Printf("vuln-notes-api listening on %s", addr)
 	if err := http.ListenAndServe(addr, srv); err != nil {
 		log.Fatal(err)

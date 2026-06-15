@@ -41,7 +41,7 @@ pipeline:
                   identifier: go_build
                   spec:
                     connectorRef: Dockerhub
-                    image: golang:1.25
+                    image: golang:1.22
                     shell: Sh
                     command: |-
                       go version
@@ -52,7 +52,7 @@ pipeline:
                   identifier: go_test
                   spec:
                     connectorRef: Dockerhub
-                    image: golang:1.25
+                    image: golang:1.22
                     shell: Sh
                     command: |-
                       go test ./... -v -count=1 | tee test-output.txt

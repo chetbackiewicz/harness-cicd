@@ -1,25 +1,28 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v2"
 )
 
 type Server struct {
-	db  *sql.DB
-	mux *http.ServeMux
+	store *Store
+	mux   *http.ServeMux
 }
 
-func NewServer(db *sql.DB) *Server {
-	s := &Server{db: db, mux: http.NewServeMux()}
+func NewServer(store *Store) *Server {
+	s := &Server{store: store, mux: http.NewServeMux()}
 	s.routes()
 	return s
 }
@@ -34,6 +37,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/login", s.handleLogin)
 	s.mux.HandleFunc("/users/", s.handleGetUser)
 	s.mux.HandleFunc("/notes", s.handleNotes)
+	s.mux.HandleFunc("/notes/search", s.handleNotesSearch)
 	s.mux.HandleFunc("/files", s.handleFiles)
 	s.mux.HandleFunc("/exec", s.handleExec)
 	s.mux.HandleFunc("/fetch", s.handleFetch)
@@ -41,6 +45,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/redirect", s.handleRedirect)
 	s.mux.HandleFunc("/admin/users", s.handleAdminUsers)
 	s.mux.HandleFunc("/config", s.handleConfig)
+	s.mux.HandleFunc("/csrf", s.handleCSRFToken)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
@@ -49,7 +54,7 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// VULN: verbose error messages leak internal information.
+// VULN: verbose error messages leak internal details.
 func writeErr(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, map[string]string{"error": err.Error()})
 }
@@ -74,19 +79,16 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if c.Username == "" || c.Password == "" {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("username and password required"))
+		writeErr(w, http.StatusBadRequest, errors.New("username and password required"))
 		return
 	}
 	// VULN: weakHash uses MD5 with no salt.
-	_, err := s.db.Exec(
-		`INSERT INTO users (username, password, role) VALUES (?, ?, 'user')`,
-		c.Username, weakHash(c.Password),
-	)
+	u, err := s.store.CreateUser(c.Username, c.Password, "user")
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]string{"username": c.Username})
+	writeJSON(w, http.StatusCreated, u)
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -99,104 +101,82 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	// VULN: SQL injection via string concatenation in the WHERE clause.
-	query := fmt.Sprintf(
-		"SELECT id, username, role FROM users WHERE username = '%s' AND password = '%s'",
-		c.Username, weakHash(c.Password),
-	)
-	row := s.db.QueryRow(query)
-	var id int
-	var username, role string
-	if err := row.Scan(&id, &username, &role); err != nil {
-		writeErr(w, http.StatusUnauthorized, fmt.Errorf("invalid credentials: %w", err))
+	u, err := s.store.Authenticate(c.Username, c.Password)
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, errors.New("invalid credentials"))
 		return
 	}
-	tok, err := issueToken(username, role)
+	tok, err := issueToken(u.Username, u.Role)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"token": tok, "role": role})
+	writeJSON(w, http.StatusOK, map[string]string{"token": tok, "role": u.Role})
 }
 
 func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/users/")
-	if id == "" {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("missing id"))
+	idStr := strings.TrimPrefix(r.URL.Path, "/users/")
+	if idStr == "" {
+		writeErr(w, http.StatusBadRequest, errors.New("missing id"))
 		return
 	}
-	// VULN: SQL injection via path parameter concatenation.
-	query := "SELECT id, username, role FROM users WHERE id = " + id
-	row := s.db.QueryRow(query)
-	var uid int
-	var username, role string
-	if err := row.Scan(&uid, &username, &role); err != nil {
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	u, err := s.store.GetUser(id)
+	if err != nil {
 		writeErr(w, http.StatusNotFound, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"id": uid, "username": username, "role": role,
-	})
-}
-
-type note struct {
-	ID     int    `json:"id"`
-	UserID int    `json:"user_id"`
-	Title  string `json:"title"`
-	Body   string `json:"body"`
+	writeJSON(w, http.StatusOK, u)
 }
 
 func (s *Server) handleNotes(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		// VULN: search parameter concatenated into LIKE clause (SQLi).
 		q := r.URL.Query().Get("q")
-		query := "SELECT id, user_id, title, body FROM notes"
-		if q != "" {
-			query += " WHERE title LIKE '%" + q + "%'"
-		}
-		rows, err := s.db.Query(query)
-		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err)
-			return
-		}
-		defer rows.Close()
-		notes := []note{}
-		for rows.Next() {
-			var n note
-			if err := rows.Scan(&n.ID, &n.UserID, &n.Title, &n.Body); err != nil {
-				writeErr(w, http.StatusInternalServerError, err)
-				return
-			}
-			notes = append(notes, n)
-		}
-		writeJSON(w, http.StatusOK, notes)
+		writeJSON(w, http.StatusOK, s.store.SearchNotes(q))
 	case http.MethodPost:
-		var n note
+		var n Note
 		if err := json.NewDecoder(r.Body).Decode(&n); err != nil {
 			writeErr(w, http.StatusBadRequest, err)
 			return
 		}
-		res, err := s.db.Exec(
-			`INSERT INTO notes (user_id, title, body) VALUES (?, ?, ?)`,
-			n.UserID, n.Title, n.Body,
-		)
-		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err)
-			return
-		}
-		id, _ := res.LastInsertId()
-		n.ID = int(id)
-		writeJSON(w, http.StatusCreated, n)
+		created := s.store.CreateNote(n.UserID, n.Title, n.Body)
+		writeJSON(w, http.StatusCreated, created)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
+// VULN: ReDoS — caller controls the regex pattern with no length or complexity bound.
+// A catastrophic pattern such as `(a+)+$` against a long string pegs CPU.
+func (s *Server) handleNotesSearch(w http.ResponseWriter, r *http.Request) {
+	pattern := r.URL.Query().Get("pattern")
+	if pattern == "" {
+		writeErr(w, http.StatusBadRequest, errors.New("pattern required"))
+		return
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	out := []*Note{}
+	for _, n := range s.store.SearchNotes("") {
+		if re.MatchString(n.Title) {
+			out = append(out, n)
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Query().Get("path")
 	if name == "" {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("path required"))
+		writeErr(w, http.StatusBadRequest, errors.New("path required"))
 		return
 	}
 	// VULN: path traversal — user-controlled path joined without containment check.
@@ -213,7 +193,7 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 	cmd := r.URL.Query().Get("cmd")
 	if cmd == "" {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("cmd required"))
+		writeErr(w, http.StatusBadRequest, errors.New("cmd required"))
 		return
 	}
 	// VULN: command injection — user input passed to a shell.
@@ -231,10 +211,10 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleFetch(w http.ResponseWriter, r *http.Request) {
 	target := r.URL.Query().Get("url")
 	if target == "" {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("url required"))
+		writeErr(w, http.StatusBadRequest, errors.New("url required"))
 		return
 	}
-	// VULN: SSRF — server fetches an arbitrary URL supplied by the caller.
+	// VULN: SSRF — server fetches any URL the caller supplies.
 	resp, err := http.Get(target)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err)
@@ -253,7 +233,7 @@ func (s *Server) handleFetch(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 	msg := r.URL.Query().Get("msg")
-	// VULN: reflected XSS — user input written directly into an HTML response.
+	// VULN: reflected XSS — input echoed into HTML without escaping.
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, "<html><body><h1>Message</h1><p>%s</p></body></html>", msg)
 }
@@ -261,7 +241,7 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 	to := r.URL.Query().Get("to")
 	if to == "" {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("to required"))
+		writeErr(w, http.StatusBadRequest, errors.New("to required"))
 		return
 	}
 	// VULN: open redirect — caller controls full target URL with no allowlist.
@@ -270,32 +250,12 @@ func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 	// VULN: broken access control — admin endpoint with no authentication check.
-	rows, err := s.db.Query(`SELECT id, username, role FROM users ORDER BY id`)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	defer rows.Close()
-	type u struct {
-		ID   int    `json:"id"`
-		Name string `json:"username"`
-		Role string `json:"role"`
-	}
-	users := []u{}
-	for rows.Next() {
-		var x u
-		if err := rows.Scan(&x.ID, &x.Name, &x.Role); err != nil {
-			writeErr(w, http.StatusInternalServerError, err)
-			return
-		}
-		users = append(users, x)
-	}
-	writeJSON(w, http.StatusOK, users)
+	writeJSON(w, http.StatusOK, s.store.ListUsers())
 }
 
 type appConfig struct {
-	FeatureFlags map[string]bool `yaml:"feature_flags"`
-	LogLevel     string          `yaml:"log_level"`
+	FeatureFlags map[string]bool `yaml:"feature_flags" json:"feature_flags"`
+	LogLevel     string          `yaml:"log_level" json:"log_level"`
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
@@ -308,11 +268,24 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	// VULN: unmarshalling untrusted YAML with vulnerable yaml.v2 (CVE-2019-11254 et al).
+	// VULN: untrusted YAML parsed with vulnerable yaml.v2 (CVE-2019-11254 et al).
 	var cfg appConfig
 	if err := yaml.Unmarshal(body, &cfg); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, cfg)
+}
+
+// VULN: math/rand seeded with a constant produces predictable tokens.
+// crypto/rand should be used for any security-sensitive value.
+var insecureRNG = rand.New(rand.NewSource(1))
+
+func (s *Server) handleCSRFToken(w http.ResponseWriter, r *http.Request) {
+	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, 16)
+	for i := range b {
+		b[i] = charset[insecureRNG.Intn(len(charset))]
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"token": string(b)})
 }

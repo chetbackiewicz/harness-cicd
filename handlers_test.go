@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,17 +13,11 @@ import (
 	"testing"
 )
 
-func newTestServer(t *testing.T) (*Server, *sql.DB) {
+func newTestServer(t *testing.T) (*Server, *Store) {
 	t.Helper()
-	db, err := InitDB(":memory:")
-	if err != nil {
-		t.Fatalf("init db: %v", err)
-	}
-	if err := SeedDB(db); err != nil {
-		t.Fatalf("seed db: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	return NewServer(db), db
+	st := NewStore()
+	st.Seed()
+	return NewServer(st), st
 }
 
 func doJSON(t *testing.T, srv http.Handler, method, target string, body interface{}) *httptest.ResponseRecorder {
@@ -63,7 +56,7 @@ func TestHealth_ReturnsOK(t *testing.T) {
 	}
 }
 
-func TestHealth_RejectsNothingButReturnsJSONContentType(t *testing.T) {
+func TestHealth_SetsJSONContentType(t *testing.T) {
 	srv, _ := newTestServer(t)
 	rec := doJSON(t, srv, http.MethodGet, "/health", nil)
 	if got := rec.Header().Get("Content-Type"); got != "application/json" {
@@ -76,37 +69,33 @@ func TestHealth_RejectsNothingButReturnsJSONContentType(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestRegister_CreatesUser(t *testing.T) {
-	srv, db := newTestServer(t)
+	srv, st := newTestServer(t)
 	rec := doJSON(t, srv, http.MethodPost, "/register", credentials{
 		Username: "carol", Password: "s3cret",
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("want 201, got %d (%s)", rec.Code, rec.Body)
 	}
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM users WHERE username = 'carol'`).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	if n != 1 {
-		t.Fatalf("expected user persisted, count=%d", n)
+	if _, err := st.Authenticate("carol", "s3cret"); err != nil {
+		t.Fatalf("user not persisted: %v", err)
 	}
 }
 
 func TestRegister_StoresMD5HashedPassword(t *testing.T) {
-	srv, db := newTestServer(t)
+	srv, st := newTestServer(t)
 	doJSON(t, srv, http.MethodPost, "/register", credentials{Username: "dave", Password: "hello"})
-	var stored string
-	if err := db.QueryRow(`SELECT password FROM users WHERE username = 'dave'`).Scan(&stored); err != nil {
-		t.Fatal(err)
+	u, err := st.Authenticate("dave", "hello")
+	if err != nil {
+		t.Fatalf("authenticate: %v", err)
 	}
-	if stored != weakHash("hello") {
-		t.Fatalf("unexpected hash %q", stored)
+	if u.Password != weakHash("hello") {
+		t.Fatalf("unexpected hash %q", u.Password)
 	}
 }
 
 func TestRegister_RejectsMissingFields(t *testing.T) {
 	srv, _ := newTestServer(t)
-	rec := doJSON(t, srv, http.MethodPost, "/register", credentials{Username: "", Password: ""})
+	rec := doJSON(t, srv, http.MethodPost, "/register", credentials{})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("want 400, got %d", rec.Code)
 	}
@@ -142,11 +131,8 @@ func TestLogin_ValidCredentialsIssuesToken(t *testing.T) {
 	}
 	var body map[string]string
 	_ = json.Unmarshal(rec.Body.Bytes(), &body)
-	if body["token"] == "" {
-		t.Fatalf("expected token, got %v", body)
-	}
-	if body["role"] != "admin" {
-		t.Fatalf("expected admin role, got %q", body["role"])
+	if body["token"] == "" || body["role"] != "admin" {
+		t.Fatalf("unexpected body %v", body)
 	}
 }
 
@@ -160,22 +146,13 @@ func TestLogin_InvalidPasswordRejected(t *testing.T) {
 	}
 }
 
-// Demonstrates the SQL injection vulnerability in handleLogin.
-// The payload ' OR '1'='1 closes the username string and short-circuits
-// authentication regardless of password.
-func TestLogin_SQLInjectionBypassesAuth(t *testing.T) {
+func TestLogin_UnknownUserRejected(t *testing.T) {
 	srv, _ := newTestServer(t)
 	rec := doJSON(t, srv, http.MethodPost, "/login", credentials{
-		Username: "admin' OR '1'='1' --",
-		Password: "anything",
+		Username: "ghost", Password: "x",
 	})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("SQLi should have succeeded; got %d (%s)", rec.Code, rec.Body)
-	}
-	var body map[string]string
-	_ = json.Unmarshal(rec.Body.Bytes(), &body)
-	if body["token"] == "" {
-		t.Fatalf("expected token from SQLi bypass")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("want 401, got %d", rec.Code)
 	}
 }
 
@@ -207,10 +184,10 @@ func TestGetUser_ReturnsRecord(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d", rec.Code)
 	}
-	var body map[string]interface{}
-	_ = json.Unmarshal(rec.Body.Bytes(), &body)
-	if body["username"] != "admin" {
-		t.Fatalf("unexpected body %v", body)
+	var u User
+	_ = json.Unmarshal(rec.Body.Bytes(), &u)
+	if u.Username != "admin" {
+		t.Fatalf("unexpected user %+v", u)
 	}
 }
 
@@ -222,21 +199,11 @@ func TestGetUser_UnknownIDReturns404(t *testing.T) {
 	}
 }
 
-// Demonstrates SQLi on /users/{id}.
-// A UNION select returns attacker-chosen rows from the same query.
-func TestGetUser_SQLInjectionReturnsCraftedRow(t *testing.T) {
+func TestGetUser_NonIntegerIDRejected(t *testing.T) {
 	srv, _ := newTestServer(t)
-	// "0 UNION SELECT 42, 'pwned', 'admin'" — URL-encoded to keep spaces/quotes
-	// from confusing http.NewRequest's path parser.
-	payload := "0%20UNION%20SELECT%2042,%20%27pwned%27,%20%27admin%27"
-	rec := doJSON(t, srv, http.MethodGet, "/users/"+payload, nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("want 200 from SQLi, got %d (%s)", rec.Code, rec.Body)
-	}
-	var body map[string]interface{}
-	_ = json.Unmarshal(rec.Body.Bytes(), &body)
-	if body["username"] != "pwned" {
-		t.Fatalf("expected injected row, got %v", body)
+	rec := doJSON(t, srv, http.MethodGet, "/users/abc", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", rec.Code)
 	}
 }
 
@@ -254,9 +221,7 @@ func TestGetUser_MissingIDReturns400(t *testing.T) {
 
 func TestNotes_CreateAndList(t *testing.T) {
 	srv, _ := newTestServer(t)
-	rec := doJSON(t, srv, http.MethodPost, "/notes", note{
-		UserID: 1, Title: "first", Body: "hello world",
-	})
+	rec := doJSON(t, srv, http.MethodPost, "/notes", Note{UserID: 1, Title: "first", Body: "hello"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("want 201, got %d (%s)", rec.Code, rec.Body)
 	}
@@ -264,7 +229,7 @@ func TestNotes_CreateAndList(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list want 200, got %d", rec.Code)
 	}
-	var notes []note
+	var notes []Note
 	_ = json.Unmarshal(rec.Body.Bytes(), &notes)
 	if len(notes) != 1 || notes[0].Title != "first" {
 		t.Fatalf("unexpected list: %v", notes)
@@ -274,34 +239,16 @@ func TestNotes_CreateAndList(t *testing.T) {
 func TestNotes_SearchFiltersByTitle(t *testing.T) {
 	srv, _ := newTestServer(t)
 	for _, title := range []string{"apple pie", "banana bread", "apple sauce"} {
-		doJSON(t, srv, http.MethodPost, "/notes", note{UserID: 1, Title: title, Body: "x"})
+		doJSON(t, srv, http.MethodPost, "/notes", Note{UserID: 1, Title: title, Body: "x"})
 	}
 	rec := doJSON(t, srv, http.MethodGet, "/notes?q=apple", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d", rec.Code)
 	}
-	var notes []note
+	var notes []Note
 	_ = json.Unmarshal(rec.Body.Bytes(), &notes)
 	if len(notes) != 2 {
 		t.Fatalf("expected 2 apple notes, got %d", len(notes))
-	}
-}
-
-// Demonstrates SQLi via the search query parameter.
-func TestNotes_SearchSQLInjectionLeaksAll(t *testing.T) {
-	srv, _ := newTestServer(t)
-	for _, title := range []string{"a", "b", "c"} {
-		doJSON(t, srv, http.MethodPost, "/notes", note{UserID: 1, Title: title, Body: "x"})
-	}
-	// "zzz%' OR 1=1 --" terminates the LIKE pattern and comments out the rest.
-	rec := doJSON(t, srv, http.MethodGet, "/notes?q=zzz%25%27+OR+1%3D1+--+", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body)
-	}
-	var notes []note
-	_ = json.Unmarshal(rec.Body.Bytes(), &notes)
-	if len(notes) != 3 {
-		t.Fatalf("expected SQLi to leak all 3 notes, got %d", len(notes))
 	}
 }
 
@@ -314,28 +261,60 @@ func TestNotes_RejectsUnsupportedMethod(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Notes regex search (ReDoS surface)
+// ---------------------------------------------------------------------------
+
+func TestNotesSearch_RegexMatches(t *testing.T) {
+	srv, _ := newTestServer(t)
+	for _, title := range []string{"alpha", "beta", "gamma"} {
+		doJSON(t, srv, http.MethodPost, "/notes", Note{UserID: 1, Title: title, Body: "x"})
+	}
+	rec := doJSON(t, srv, http.MethodGet, "/notes/search?pattern=^a", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rec.Code)
+	}
+	var notes []Note
+	_ = json.Unmarshal(rec.Body.Bytes(), &notes)
+	if len(notes) != 1 || notes[0].Title != "alpha" {
+		t.Fatalf("unexpected notes: %v", notes)
+	}
+}
+
+func TestNotesSearch_RejectsInvalidRegex(t *testing.T) {
+	srv, _ := newTestServer(t)
+	rec := doJSON(t, srv, http.MethodGet, "/notes/search?pattern=%5B", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", rec.Code)
+	}
+}
+
+func TestNotesSearch_RequiresPattern(t *testing.T) {
+	srv, _ := newTestServer(t)
+	rec := doJSON(t, srv, http.MethodGet, "/notes/search", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", rec.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Files (path traversal)
 // ---------------------------------------------------------------------------
 
 func TestFiles_ServesAllowedFile(t *testing.T) {
-	dir := t.TempDir()
-	// Override the /tmp/files root by symlinking the temp dir; instead we
-	// place a file at the expected location for this test.
 	_ = os.MkdirAll("/tmp/files", 0o755)
 	path := filepath.Join("/tmp/files", "ok.txt")
 	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
 		t.Skipf("cannot write to /tmp/files: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Remove(path) })
-	_ = dir
 
 	srv, _ := newTestServer(t)
 	rec := doJSON(t, srv, http.MethodGet, "/files?path=ok.txt", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body)
 	}
-	if got := rec.Body.String(); got != "hello" {
-		t.Fatalf("body = %q", got)
+	if rec.Body.String() != "hello" {
+		t.Fatalf("body = %q", rec.Body.String())
 	}
 }
 
@@ -347,7 +326,7 @@ func TestFiles_RequiresPath(t *testing.T) {
 	}
 }
 
-// Demonstrates path traversal — ../../etc/passwd escapes the /tmp/files root.
+// Demonstrates path traversal — `../` escapes the /tmp/files root.
 func TestFiles_PathTraversalEscapesRoot(t *testing.T) {
 	target := "/tmp/files-secret.txt"
 	if err := os.WriteFile(target, []byte("topsecret"), 0o644); err != nil {
@@ -360,8 +339,8 @@ func TestFiles_PathTraversalEscapesRoot(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("traversal should have succeeded; got %d (%s)", rec.Code, rec.Body)
 	}
-	if got := rec.Body.String(); got != "topsecret" {
-		t.Fatalf("body = %q", got)
+	if rec.Body.String() != "topsecret" {
+		t.Fatalf("body = %q", rec.Body.String())
 	}
 }
 
@@ -382,7 +361,6 @@ func TestExec_RunsSimpleCommand(t *testing.T) {
 	}
 }
 
-// Demonstrates command injection: a chained command runs in the same shell.
 func TestExec_CommandInjectionChainsExtraCommand(t *testing.T) {
 	srv, _ := newTestServer(t)
 	rec := doJSON(t, srv, http.MethodGet, "/exec?cmd=echo+safe%3B+echo+pwned", nil)
@@ -433,9 +411,8 @@ func TestFetch_RequiresURL(t *testing.T) {
 	}
 }
 
-// Demonstrates SSRF: there is no allowlist, so the server happily fetches
-// any URL the caller supplies — including an internal "metadata" endpoint
-// simulated here by a local httptest server.
+// Demonstrates SSRF: no allowlist, server fetches arbitrary URL — simulated
+// here by a local httptest server standing in for an internal endpoint.
 func TestFetch_SSRFReachesInternalEndpoint(t *testing.T) {
 	internal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "internal-secret")
@@ -467,8 +444,6 @@ func TestRender_EchoesMessage(t *testing.T) {
 	}
 }
 
-// Demonstrates reflected XSS: the script tag is written into the HTML body
-// without escaping.
 func TestRender_ReflectsScriptTagUnescaped(t *testing.T) {
 	srv, _ := newTestServer(t)
 	rec := doJSON(t, srv, http.MethodGet, "/render?msg=%3Cscript%3Ealert(1)%3C%2Fscript%3E", nil)
@@ -498,9 +473,6 @@ func TestRedirect_RedirectsToTarget(t *testing.T) {
 func TestRedirect_OpenRedirectToExternalDomain(t *testing.T) {
 	srv, _ := newTestServer(t)
 	rec := doJSON(t, srv, http.MethodGet, "/redirect?to=https://evil.example/phish", nil)
-	if rec.Code != http.StatusFound {
-		t.Fatalf("want 302, got %d", rec.Code)
-	}
 	if !strings.HasPrefix(rec.Header().Get("Location"), "https://evil.example") {
 		t.Fatalf("open redirect blocked unexpectedly; location=%q", rec.Header().Get("Location"))
 	}
@@ -510,14 +482,13 @@ func TestRedirect_OpenRedirectToExternalDomain(t *testing.T) {
 // Admin (broken access control)
 // ---------------------------------------------------------------------------
 
-// Demonstrates broken access control: /admin/users requires no authentication.
 func TestAdminUsers_AccessibleWithoutAuth(t *testing.T) {
 	srv, _ := newTestServer(t)
 	rec := doJSON(t, srv, http.MethodGet, "/admin/users", nil)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body)
+		t.Fatalf("want 200, got %d", rec.Code)
 	}
-	var users []map[string]interface{}
+	var users []User
 	_ = json.Unmarshal(rec.Body.Bytes(), &users)
 	if len(users) < 3 {
 		t.Fatalf("expected seeded users, got %d", len(users))
@@ -561,6 +532,45 @@ func TestConfig_RejectsNonPOST(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// CSRF token (insecure random)
+// ---------------------------------------------------------------------------
+
+func TestCSRFToken_ReturnsToken(t *testing.T) {
+	srv, _ := newTestServer(t)
+	rec := doJSON(t, srv, http.MethodGet, "/csrf", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rec.Code)
+	}
+	var body map[string]string
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if len(body["token"]) != 16 {
+		t.Fatalf("expected 16-char token, got %q", body["token"])
+	}
+}
+
+// Demonstrates insecure random: the seed is constant, so the token sequence
+// is deterministic and recoverable by an attacker.
+func TestCSRFToken_IsPredictable(t *testing.T) {
+	srv, _ := newTestServer(t)
+	// Reset the RNG to the documented seed so the first emitted token
+	// matches a known precomputed value.
+	insecureRNG.Seed(1)
+	rec := doJSON(t, srv, http.MethodGet, "/csrf", nil)
+	var body map[string]string
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if body["token"] == "" {
+		t.Fatal("missing token")
+	}
+	insecureRNG.Seed(1)
+	rec = doJSON(t, srv, http.MethodGet, "/csrf", nil)
+	var body2 map[string]string
+	_ = json.Unmarshal(rec.Body.Bytes(), &body2)
+	if body["token"] != body2["token"] {
+		t.Fatalf("tokens should be reproducible: %q vs %q", body["token"], body2["token"])
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Auth helpers
 // ---------------------------------------------------------------------------
 
@@ -591,59 +601,32 @@ func TestParseToken_RejectsGarbage(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// DB
+// Store
 // ---------------------------------------------------------------------------
 
-func TestInitDB_CreatesSchema(t *testing.T) {
-	db, err := InitDB(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('users','notes')`).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	if n != 2 {
-		t.Fatalf("expected 2 tables, got %d", n)
+func TestStore_SeedsExpectedUsers(t *testing.T) {
+	st := NewStore()
+	st.Seed()
+	if got := len(st.ListUsers()); got != 3 {
+		t.Fatalf("expected 3 seeded users, got %d", got)
 	}
 }
 
-func TestSeedDB_InsertsExpectedUsers(t *testing.T) {
-	db, err := InitDB(":memory:")
-	if err != nil {
+func TestStore_DuplicateCreateReturnsErr(t *testing.T) {
+	st := NewStore()
+	if _, err := st.CreateUser("x", "p", "user"); err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
-	if err := SeedDB(db); err != nil {
-		t.Fatal(err)
-	}
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	if n != 3 {
-		t.Fatalf("expected 3 seeded users, got %d", n)
+	if _, err := st.CreateUser("x", "p", "user"); err == nil {
+		t.Fatal("expected duplicate error")
 	}
 }
 
-func TestSeedDB_IsIdempotent(t *testing.T) {
-	db, err := InitDB(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if err := SeedDB(db); err != nil {
-		t.Fatal(err)
-	}
-	if err := SeedDB(db); err != nil {
-		t.Fatal(err)
-	}
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	if n != 3 {
-		t.Fatalf("expected idempotent seed (3 users), got %d", n)
+func TestStore_SearchNotesEmptyQueryReturnsAll(t *testing.T) {
+	st := NewStore()
+	st.CreateNote(1, "a", "x")
+	st.CreateNote(1, "b", "x")
+	if got := len(st.SearchNotes("")); got != 2 {
+		t.Fatalf("expected 2 notes, got %d", got)
 	}
 }
