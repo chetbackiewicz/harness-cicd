@@ -1,8 +1,8 @@
 # vuln-notes-api
 
-A deliberately vulnerable Go microservice used as a target for Harness CI/CD
-security scans (SAST, SCA, STO, DAST). Pure stdlib + an in-memory store, so it
-compiles in seconds. **Do not deploy outside an isolated lab.**
+A deliberately vulnerable Go microservice used as a target for CI/CD security
+scans (SAST, SCA, DAST). Pure stdlib + an in-memory store, so it compiles in
+seconds. **Do not deploy outside an isolated lab.**
 
 ## Run
 
