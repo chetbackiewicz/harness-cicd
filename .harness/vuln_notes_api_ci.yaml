@@ -33,8 +33,22 @@ pipeline:
               namespace: harness-delegate-ng
               automountServiceAccountToken: true
               os: Linux
+              nodeSelector:
+                workload: ci
           execution:
             steps:
+              - step:
+                  type: Run
+                  name: DinD Probe
+                  identifier: dind_probe
+                  spec:
+                    connectorRef: Dockerhub
+                    image: docker:24-cli
+                    shell: Sh
+                    privileged: true
+                    command: |-
+                      docker version
+                      docker info | grep -E "Server Version|Cgroup" || true
               - step:
                   type: Run
                   name: Go Build
