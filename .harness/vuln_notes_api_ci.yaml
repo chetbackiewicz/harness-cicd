@@ -1,0 +1,63 @@
+pipeline:
+  name: vuln-notes-api CI
+  identifier: vuln_notes_api_ci
+  projectIdentifier: default_project
+  orgIdentifier: default
+  tags: {}
+  properties:
+    ci:
+      codebase:
+        connectorRef: harness-cicd
+        repoName: harness-cicd
+        build: <+input>
+  stages:
+    - stage:
+        name: Build and Test
+        identifier: BuildAndTest
+        description: Compile and test the vuln-notes-api Go service
+        type: CI
+        spec:
+          cloneCodebase: true
+          caching:
+            enabled: true
+            override: true
+            paths:
+              - /root/.cache/go-build
+              - /go/pkg/mod
+          buildIntelligence:
+            enabled: true
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: aks-cluster-delegate
+              namespace: harness-delegate-ng
+              automountServiceAccountToken: true
+              os: Linux
+          execution:
+            steps:
+              - step:
+                  type: Run
+                  name: Go Build
+                  identifier: go_build
+                  spec:
+                    connectorRef: Dockerhub
+                    image: golang:1.22
+                    shell: Sh
+                    command: |-
+                      go version
+                      go build ./...
+              - step:
+                  type: Run
+                  name: Go Test
+                  identifier: go_test
+                  spec:
+                    connectorRef: Dockerhub
+                    image: golang:1.22
+                    shell: Sh
+                    command: |-
+                      go test ./... -v -count=1 | tee test-output.txt
+                    reports:
+                      type: JUnit
+                      spec:
+                        paths:
+                          - test-output.txt
