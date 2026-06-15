@@ -1,7 +1,7 @@
 # vuln-notes-api
 
-A deliberately vulnerable Go microservice used as a target for Harness CI/CD
-security scans (SAST, SCA, STO, DAST). **Do not deploy outside an isolated lab.**
+A deliberately vulnerable Go microservice used as a target for CI/CD
+security scans. 
 
 ## Run
 
@@ -69,7 +69,7 @@ curl -s -X POST http://localhost:8080/login \
   -d '{"username":"admin'"'"' OR '"'"'1'"'"'='"'"'1'"'"' --","password":"anything"}'
 ```
 
-## Container build (for Harness pipelines)
+## Container build
 
 ```dockerfile
 FROM golang:1.22 AS build
