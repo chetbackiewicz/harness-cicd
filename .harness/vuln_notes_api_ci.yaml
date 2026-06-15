@@ -1,13 +1,13 @@
 pipeline:
-  name: vuln-notes-api CI
-  identifier: vuln_notes_api_ci
-  projectIdentifier: default_project
+  name: Vuln_API_CI
+  identifier: Vuln_API_CI
+  projectIdentifier: DevSecOps
   orgIdentifier: default
   tags: {}
   properties:
     ci:
       codebase:
-        connectorRef: harness-cicd
+        connectorRef: harnesscicd
         repoName: harness-cicd
         build: <+input>
   stages:
@@ -29,7 +29,7 @@ pipeline:
           infrastructure:
             type: KubernetesDirect
             spec:
-              connectorRef: aks-cluster-delegate
+              connectorRef: aksclusterdelegate
               namespace: harness-delegate-ng
               automountServiceAccountToken: true
               os: Linux
@@ -41,7 +41,7 @@ pipeline:
                   identifier: go_build
                   spec:
                     connectorRef: Dockerhub
-                    image: golang:1.22
+                    image: golang:1.25
                     shell: Sh
                     command: |-
                       go version
@@ -52,7 +52,7 @@ pipeline:
                   identifier: go_test
                   spec:
                     connectorRef: Dockerhub
-                    image: golang:1.22
+                    image: golang:1.25
                     shell: Sh
                     command: |-
                       go test ./... -v -count=1 | tee test-output.txt
