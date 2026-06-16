@@ -42,32 +42,12 @@ pipeline:
               os: Linux
           execution:
             steps:
-              - step:
-                  type: Run
-                  name: Go Build
-                  identifier: go_build
-                  spec:
-                    connectorRef: Dockerhub
-                    image: golang:1.22
-                    shell: Sh
-                    command: |-
-                      go version
-                      go build ./...
-              - step:
-                  type: Run
-                  name: Go Test
-                  identifier: go_test
-                  spec:
-                    connectorRef: Dockerhub
-                    image: golang:1.22
-                    shell: Sh
-                    command: |-
-                      go test ./... -v -count=1 | tee test-output.txt
-                    reports:
-                      type: JUnit
-                      spec:
-                        paths:
-                          - test-output.txt
+              - stepGroup:
+                  name: Go Build and Test
+                  identifier: Go_Build_and_Test
+                  template:
+                    templateRef: Go_Build_and_Test
+                    versionLabel: v1
     - stage:
         name: Push Image
         identifier: PushImage
