@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: vuln-api
-          image: docker.io/chetback/vuln_api:<+pipeline.sequenceId>
+          image: <+artifact.image>
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

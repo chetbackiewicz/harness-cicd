@@ -1,9 +1,15 @@
 pipeline:
-  name: Build_And_Test 
+  name: CI CD
   identifier: Build_And_Test
   projectIdentifier: DevSecOps
   orgIdentifier: default
   tags: {}
+  variables:
+    - name: image_tag
+      type: String
+      description: Docker image tag of chetback/vuln_api to deploy (defaults to this run's sequenceId)
+      required: true
+      value: <+input>.default(<+pipeline.sequenceId>)
   properties:
     ci:
       codebase:
@@ -85,7 +91,7 @@ pipeline:
                   identifier: build_and_push
                   spec:
                     connectorRef: Dockerhub
-                    repo: chetback/vuln-api
+                    repo: chetback/vuln_api
                     tags:
                       - <+pipeline.sequenceId>
                     dockerfile: Dockerfile
@@ -94,7 +100,7 @@ pipeline:
     - stage:
         name: Deploy
         identifier: Deploy
-        description: Canary deploy vuln-api to the Development AKS environment
+        description: Canary deploy vuln_api to the Development AKS environment
         type: Deployment
         spec:
           deploymentType: Kubernetes
@@ -106,12 +112,11 @@ pipeline:
                 spec:
                   artifacts:
                     primary:
-                      primaryArtifactRef: dockerhub_vuln_api
                       sources:
                         - identifier: dockerhub_vuln_api
                           type: DockerRegistry
                           spec:
-                            tag: <+pipeline.sequenceId>
+                            tag: <+pipeline.variables.image_tag>
           environment:
             environmentRef: Development
             deployToAll: false
@@ -121,7 +126,7 @@ pipeline:
             steps:
               - stepGroup:
                   name: Canary Deployment
-                  identifier: canaryDepoyment
+                  identifier: canaryDeployment
                   steps:
                     - step:
                         name: Canary Deployment
@@ -142,7 +147,7 @@ pipeline:
                         spec: {}
               - stepGroup:
                   name: Primary Deployment
-                  identifier: primaryDepoyment
+                  identifier: primaryDeployment
                   steps:
                     - step:
                         name: Rolling Deployment

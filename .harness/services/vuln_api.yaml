@@ -24,12 +24,12 @@ service:
               enableDeclarativeRollback: false
       artifacts:
         primary:
-          primaryArtifactRef: <+input>
+          primaryArtifactRef: dockerhub_vuln_api
           sources:
             - identifier: dockerhub_vuln_api
               type: DockerRegistry
               spec:
                 connectorRef: Dockerhub
-                imagePath: chetback/vuln-api
+                imagePath: chetback/vuln_api
                 tag: <+input>
   gitOpsEnabled: false
