@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: vuln-api
-          image: {{.Values.image}}
+          image: "{{.Values.image}}"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
