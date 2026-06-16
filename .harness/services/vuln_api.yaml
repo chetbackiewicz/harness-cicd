@@ -1,0 +1,35 @@
+service:
+  name: vuln_api
+  identifier: vuln_api
+  description: vuln-api Go microservice deployed to AKS
+  serviceDefinition:
+    type: Kubernetes
+    spec:
+      manifests:
+        - manifest:
+            identifier: vuln_api_manifests
+            type: K8sManifest
+            spec:
+              store:
+                type: Github
+                spec:
+                  connectorRef: harnesscicd
+                  gitFetchType: Branch
+                  paths:
+                    - manifests/dev/10-deployment.yaml
+                    - manifests/dev/20-service.yaml
+                  repoName: harness-cicd
+                  branch: main
+              skipResourceVersioning: false
+              enableDeclarativeRollback: false
+      artifacts:
+        primary:
+          primaryArtifactRef: <+input>
+          sources:
+            - identifier: dockerhub_vuln_api
+              type: DockerRegistry
+              spec:
+                connectorRef: Dockerhub
+                imagePath: chetback/vuln-api
+                tag: <+input>
+  gitOpsEnabled: false

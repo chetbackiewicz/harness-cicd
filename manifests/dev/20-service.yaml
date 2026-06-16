@@ -2,10 +2,8 @@ apiVersion: v1
 kind: Service
 metadata:
   name: vuln-api
-  namespace: vuln-api-dev
   labels:
     app: vuln-api
-    env: dev
 spec:
   type: ClusterIP
   selector:
