@@ -20,6 +20,8 @@ service:
                     - manifests/dev/20-service.yaml
                   repoName: harness-cicd
                   branch: main
+              valuesPaths:
+                - manifests/dev/values.yaml
               skipResourceVersioning: false
               enableDeclarativeRollback: false
       artifacts:
