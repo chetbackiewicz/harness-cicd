@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vuln-api
+  namespace: vuln-api-dev
+  labels:
+    app: vuln-api
+    env: dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vuln-api
+  template:
+    metadata:
+      labels:
+        app: vuln-api
+        env: dev
+    spec:
+      containers:
+        - name: vuln-api
+          image: docker.io/chetback/vuln-api:IMAGE_TAG
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: ADDR
+              value: ":8080"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"

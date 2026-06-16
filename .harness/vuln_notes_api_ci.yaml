@@ -1,6 +1,6 @@
 pipeline:
-  name: Vuln_API_CI
-  identifier: Vuln_API_CI
+  name: Build_And_Test 
+  identifier: Build_And_Test
   projectIdentifier: DevSecOps
   orgIdentifier: default
   tags: {}
@@ -16,6 +16,7 @@ pipeline:
         identifier: BuildAndTest
         description: Compile and test the vuln-notes-api Go service
         type: CI
+        timeout: 30m
         spec:
           cloneCodebase: true
           caching:
@@ -33,22 +34,8 @@ pipeline:
               namespace: harness-delegate-ng
               automountServiceAccountToken: true
               os: Linux
-              nodeSelector:
-                workload: ci
           execution:
             steps:
-              - step:
-                  type: Run
-                  name: DinD Probe
-                  identifier: dind_probe
-                  spec:
-                    connectorRef: Dockerhub
-                    image: docker:24-cli
-                    shell: Sh
-                    privileged: true
-                    command: |-
-                      docker version
-                      docker info | grep -E "Server Version|Cgroup" || true
               - step:
                   type: Run
                   name: Go Build
@@ -75,3 +62,32 @@ pipeline:
                       spec:
                         paths:
                           - test-output.txt
+    - stage:
+        name: Push Image
+        identifier: PushImage
+        description: Build and push the vuln-api container image to Dockerhub
+        type: CI
+        timeout: 30m
+        spec:
+          cloneCodebase: true
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: aksclusterdelegate
+              namespace: harness-delegate-ng
+              automountServiceAccountToken: true
+              os: Linux
+          execution:
+            steps:
+              - step:
+                  type: BuildAndPushDockerRegistry
+                  name: Build and Push
+                  identifier: build_and_push
+                  spec:
+                    connectorRef: Dockerhub
+                    repo: chetback/vuln-api
+                    tags:
+                      - <+pipeline.sequenceId>
+                    dockerfile: Dockerfile
+                    context: .
+                    caching: true

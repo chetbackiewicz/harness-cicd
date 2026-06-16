@@ -1,0 +1,68 @@
+pipeline:
+  name: Vuln_API_CD
+  identifier: Vuln_API_CD
+  projectIdentifier: DevSecOps
+  orgIdentifier: default
+  description: Deploy vuln-api to AKS dev environment
+  tags: {}
+  properties:
+    ci:
+      codebase:
+        connectorRef: harnesscicd
+        repoName: harness-cicd
+        build: <+input>
+  stages:
+    - stage:
+        name: Deploy to Dev
+        identifier: DeployToDev
+        description: Render manifests with the requested image tag and apply to AKS
+        type: CI
+        timeout: 30m
+        spec:
+          cloneCodebase: true
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: aksclusterdelegate
+              namespace: harness-delegate-ng
+              automountServiceAccountToken: true
+              os: Linux
+          execution:
+            steps:
+              - step:
+                  type: Run
+                  name: Render Manifests
+                  identifier: render_manifests
+                  spec:
+                    connectorRef: Dockerhub
+                    image: alpine:3.20
+                    shell: Sh
+                    envVariables:
+                      IMAGE_TAG: <+pipeline.variables.imageTag>
+                    command: |-
+                      set -euo pipefail
+                      mkdir -p rendered
+                      for f in manifests/dev/*.yaml; do
+                        sed "s|IMAGE_TAG|${IMAGE_TAG}|g" "$f" > "rendered/$(basename "$f")"
+                      done
+                      echo "--- rendered manifests ---"
+                      cat rendered/*.yaml
+              - step:
+                  type: Run
+                  name: Apply Manifests
+                  identifier: apply_manifests
+                  spec:
+                    connectorRef: Dockerhub
+                    image: bitnami/kubectl:1.30
+                    shell: Sh
+                    command: |-
+                      set -euo pipefail
+                      kubectl apply -f rendered/
+                      kubectl -n vuln-api-dev rollout status deploy/vuln-api --timeout=120s
+                      kubectl -n vuln-api-dev get deploy,svc,pods -o wide
+  variables:
+    - name: imageTag
+      type: String
+      description: Dockerhub image tag of chetback/vuln-api to deploy (typically the CI pipeline's sequenceId)
+      required: true
+      value: <+input>
