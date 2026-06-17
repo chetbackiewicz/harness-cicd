@@ -1,0 +1,219 @@
+pipeline:
+  name: Vuln_Api_CI_CD
+  identifier: Vuln_Api_CI_CD
+  projectIdentifier: DevSecOps
+  orgIdentifier: default
+  tags: {}
+  variables:
+    - name: image_tag
+      type: String
+      description: Docker image tag of chetback/vuln_api to deploy (defaults to this run's sequenceId)
+      required: true
+      value: <+input>.default(<+pipeline.sequenceId>)
+  properties:
+    ci:
+      codebase:
+        connectorRef: harnesscicd
+        repoName: harness-cicd
+        build: <+input>
+  stages:
+    - stage:
+        name: Build and Test
+        identifier: BuildAndTest
+        description: Compile and test the vuln-notes-api Go service
+        type: CI
+        timeout: 30m
+        spec:
+          cloneCodebase: true
+          caching:
+            enabled: true
+            override: true
+            paths:
+              - /root/.cache/go-build
+              - /go/pkg/mod
+          buildIntelligence:
+            enabled: true
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: aksclusterdelegate
+              namespace: harness-delegate-ng
+              automountServiceAccountToken: true
+              nodeSelector: {}
+              os: Linux
+          execution:
+            steps:
+              - stepGroup:
+                  name: Go Build and Test
+                  identifier: Go_Build_and_Test
+                  template:
+                    templateRef: Go_Build_and_Test
+                    versionLabel: v1
+    - stage:
+        name: Security Tests
+        identifier: SecurityTests
+        description: SAST (Semgrep) — warn-only, does not block deploy
+        type: CI
+        timeout: 30m
+        spec:
+          cloneCodebase: true
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: aksclusterdelegate
+              namespace: harness-delegate-ng
+              automountServiceAccountToken: true
+              os: Linux
+          execution:
+            steps:
+              - parallel:
+                  - step:
+                      type: Run
+                      name: Semgrep SAST
+                      identifier: semgrep_sast
+                      spec:
+                        connectorRef: Dockerhub
+                        image: semgrep/semgrep:latest
+                        shell: Sh
+                        command: |-
+                          echo "=============================="
+                          echo "  Semgrep SAST scan"
+                          echo "=============================="
+                          semgrep --version
+                          semgrep scan \
+                            --config=p/golang \
+                            --config=p/security-audit \
+                            --config=p/owasp-top-ten \
+                            --metrics=off \
+                            --error \
+                            --json --output=semgrep.json \
+                            . || SEMGREP_EXIT=$?
+
+                          echo
+                          echo "--- Findings (human readable) ---"
+                          semgrep scan \
+                            --config=p/golang \
+                            --config=p/security-audit \
+                            --config=p/owasp-top-ten \
+                            --metrics=off \
+                            . || true
+
+                          echo
+                          echo "--- Summary ---"
+                          CRIT=$(grep -o '"severity": "ERROR"' semgrep.json | wc -l | tr -d ' ')
+                          WARN=$(grep -o '"severity": "WARNING"' semgrep.json | wc -l | tr -d ' ')
+                          INFO=$(grep -o '"severity": "INFO"' semgrep.json | wc -l | tr -d ' ')
+                          echo "ERROR (high):    $CRIT"
+                          echo "WARNING (med):   $WARN"
+                          echo "INFO (low):      $INFO"
+                          echo
+                          echo "(warn-only mode: stage will pass regardless)"
+                          exit 0
+    - stage:
+        name: Push Image
+        identifier: PushImage
+        description: Build and push the vuln-api container image to Dockerhub
+        type: CI
+        timeout: 30m
+        spec:
+          cloneCodebase: true
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: aksclusterdelegate
+              namespace: harness-delegate-ng
+              automountServiceAccountToken: true
+              os: Linux
+          execution:
+            steps:
+              - step:
+                  type: BuildAndPushDockerRegistry
+                  name: Build and Push
+                  identifier: build_and_push
+                  spec:
+                    connectorRef: Dockerhub
+                    repo: chetback/vuln_api
+                    tags:
+                      - <+pipeline.sequenceId>
+                    dockerfile: Dockerfile
+                    context: .
+                    caching: true
+    - stage:
+        name: Deploy
+        identifier: Deploy
+        description: Canary deploy vuln_api to the Development AKS environment
+        type: Deployment
+        spec:
+          deploymentType: Kubernetes
+          service:
+            serviceRef: vuln_api
+            serviceInputs:
+              serviceDefinition:
+                type: Kubernetes
+                spec:
+                  artifacts:
+                    primary:
+                      sources:
+                        - identifier: dockerhub_vuln_api
+                          type: DockerRegistry
+                          spec:
+                            tag: <+pipeline.variables.image_tag>
+          environment:
+            environmentRef: Development
+            deployToAll: false
+            infrastructureDefinitions:
+              - identifier: deploy_k8s_infra
+          execution:
+            steps:
+              - stepGroup:
+                  name: Canary Deployment
+                  identifier: canaryDeployment
+                  steps:
+                    - step:
+                        name: Canary Deployment
+                        identifier: canaryDeployment
+                        type: K8sCanaryDeploy
+                        timeout: 10m
+                        spec:
+                          instanceSelection:
+                            type: Count
+                            spec:
+                              count: 1
+                          skipDryRun: false
+                    - step:
+                        name: Canary Delete
+                        identifier: canaryDelete
+                        type: K8sCanaryDelete
+                        timeout: 10m
+                        spec: {}
+              - stepGroup:
+                  name: Primary Deployment
+                  identifier: primaryDeployment
+                  steps:
+                    - step:
+                        name: Rolling Deployment
+                        identifier: rollingDeployment
+                        type: K8sRollingDeploy
+                        timeout: 10m
+                        spec:
+                          skipDryRun: false
+            rollbackSteps:
+              - step:
+                  name: Canary Delete
+                  identifier: rollbackCanaryDelete
+                  type: K8sCanaryDelete
+                  timeout: 10m
+                  spec: {}
+              - step:
+                  name: Rolling Rollback
+                  identifier: rollingRollback
+                  type: K8sRollingRollback
+                  timeout: 10m
+                  spec: {}
+        tags: {}
+        failureStrategies:
+          - onFailure:
+              errors:
+                - AllErrors
+              action:
+                type: Abort
