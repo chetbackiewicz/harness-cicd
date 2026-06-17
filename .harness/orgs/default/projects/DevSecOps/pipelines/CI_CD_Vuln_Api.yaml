@@ -47,7 +47,7 @@ pipeline:
                   name: Go Build and Test
                   identifier: Go_Build_and_Test
                   template:
-                    templateRef: Go_Build_and_Test
+                    templateRef: Build_and_Test
                     versionLabel: v1
     - stage:
         name: Security Tests
@@ -146,7 +146,7 @@ pipeline:
         spec:
           deploymentType: Kubernetes
           service:
-            serviceRef: vuln_api
+            serviceRef: Vuln_Api_Service
             serviceInputs:
               serviceDefinition:
                 type: Kubernetes
