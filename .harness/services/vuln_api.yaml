@@ -1,7 +1,8 @@
 service:
   name: vuln_api
   identifier: vuln_api
-  description: vuln-api Go microservice deployed to AKS
+  orgIdentifier: default
+  projectIdentifier: DevSecOps
   serviceDefinition:
     type: Kubernetes
     spec:
