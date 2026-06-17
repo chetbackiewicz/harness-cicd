@@ -1,0 +1,50 @@
+template:
+  name: Snyk_Scan
+  identifier: Snyk_Scan
+  versionLabel: v1
+  type: Step
+  projectIdentifier: DevSecOps
+  orgIdentifier: default
+  tags: {}
+  spec:
+    type: Run
+    name: Semgrep SAST
+    identifier: semgrep_sast
+    spec:
+      connectorRef: Dockerhub
+      image: semgrep/semgrep:latest
+      shell: Sh
+      command: |-
+        echo "=============================="
+        echo "  Semgrep SAST scan"
+        echo "=============================="
+        semgrep --version
+        semgrep scan \
+          --config=p/golang \
+          --config=p/security-audit \
+          --config=p/owasp-top-ten \
+          --metrics=off \
+          --error \
+          --json --output=semgrep.json \
+          . || SEMGREP_EXIT=$?
+
+        echo
+        echo "--- Findings (human readable) ---"
+        semgrep scan \
+          --config=p/golang \
+          --config=p/security-audit \
+          --config=p/owasp-top-ten \
+          --metrics=off \
+          . || true
+
+        echo
+        echo "--- Summary ---"
+        CRIT=$(grep -o '"severity": "ERROR"' semgrep.json | wc -l | tr -d ' ')
+        WARN=$(grep -o '"severity": "WARNING"' semgrep.json | wc -l | tr -d ' ')
+        INFO=$(grep -o '"severity": "INFO"' semgrep.json | wc -l | tr -d ' ')
+        echo "ERROR (high):    $CRIT"
+        echo "WARNING (med):   $WARN"
+        echo "INFO (low):      $INFO"
+        echo
+        echo "(warn-only mode: stage will pass regardless)"
+        exit 0
