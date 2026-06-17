@@ -1,0 +1,58 @@
+template:
+  name: Build_and_Test
+  identifier: Build_and_Test
+  versionLabel: v1
+  type: StepGroup
+  projectIdentifier: DevSecOps
+  orgIdentifier: default
+  tags: {}
+  spec:
+    stageType: CI
+    steps:
+      - step:
+          type: Run
+          name: Go Build
+          identifier: go_build
+          spec:
+            connectorRef: Dockerhub
+            image: golang:1.22
+            shell: Sh
+            command: |-
+              go version
+              go build ./...
+      - step:
+          type: Run
+          name: Go Test
+          identifier: go_test
+          spec:
+            connectorRef: Dockerhub
+            image: golang:1.22
+            shell: Sh
+            command: |-
+              go install github.com/jstemmer/go-junit-report/v2@latest
+              export PATH=$PATH:$(go env GOPATH)/bin
+
+              echo "=============================="
+              echo "  Running test suite"
+              echo "=============================="
+              go test ./... -v -count=1 2>&1 | tee test-output.txt | go-junit-report -set-exit-code > junit.xml
+              TEST_EXIT=$?
+
+              echo
+              echo "=============================="
+              echo "  Test summary"
+              echo "=============================="
+              grep -E '^(--- (PASS|FAIL|SKIP)|PASS|FAIL|ok)' test-output.txt | tail -60
+              echo
+              echo "PASSED:  $(grep -c '^--- PASS' test-output.txt)"
+              echo "FAILED:  $(grep -c '^--- FAIL' test-output.txt)"
+              echo "SKIPPED: $(grep -c '^--- SKIP' test-output.txt)"
+              echo
+
+              ls -la junit.xml
+              exit $TEST_EXIT
+            reports:
+              type: JUnit
+              spec:
+                paths:
+                  - junit.xml
