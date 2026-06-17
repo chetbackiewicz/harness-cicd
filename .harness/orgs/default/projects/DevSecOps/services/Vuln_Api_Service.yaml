@@ -1,0 +1,5 @@
+service:
+  name: Vuln Api Service
+  identifier: Vuln_Api_Service
+  orgIdentifier: default
+  projectIdentifier: DevSecOps
