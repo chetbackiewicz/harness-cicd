@@ -146,7 +146,7 @@ pipeline:
                         level: info
                     privileged: true
                     auth:
-                      access_token: <+secrets.getValue("project.GitHub_PAT_for_Security_Scan")>
+                      access_token: <+secrets.getValue("GitHub_PAT_for_Security_Scan")>
     - stage:
         name: Push Image
         identifier: PushImage
