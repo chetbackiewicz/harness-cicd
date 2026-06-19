@@ -52,7 +52,7 @@ pipeline:
     - stage:
         name: Security Tests
         identifier: SecurityTests
-        description: SAST (Semgrep) — warn-only, does not block deploy
+        description: SAST, SCA, secrets, and CodeQL scans — warn-only, does not block deploy
         type: CI
         timeout: 30m
         spec:
@@ -74,6 +74,79 @@ pipeline:
                       template:
                         templateRef: Semgrep_Scan
                         versionLabel: v1
+              - step:
+                  type: Semgrep
+                  name: Semgrep_2
+                  identifier: Semgrep_2
+                  spec:
+                    target:
+                      detection: auto
+                      type: repository
+                    advanced:
+                      log:
+                        level: info
+                      args: {}
+                    mode: orchestration
+                    config: default
+              - parallel:
+                  - step:
+                      type: Owasp
+                      name: Owasp_1
+                      identifier: Owasp_1
+                      spec:
+                        target:
+                          detection: auto
+                          type: repository
+                        advanced:
+                          log:
+                            level: info
+                          args: {}
+                        mode: orchestration
+                        config: default
+                  - step:
+                      type: OsvScanner
+                      name: OsvScanner_1
+                      identifier: OsvScanner_1
+                      spec:
+                        target:
+                          detection: auto
+                          type: repository
+                        advanced:
+                          log:
+                            level: info
+                          args: {}
+                        mode: orchestration
+                        config: default
+              - step:
+                  type: Gitleaks
+                  name: Gitleaks_1
+                  identifier: Gitleaks_1
+                  spec:
+                    target:
+                      detection: auto
+                      type: repository
+                    advanced:
+                      log:
+                        level: info
+                      args: {}
+                    mode: orchestration
+                    config: default
+              - step:
+                  type: GitHubAdvancedSecurity
+                  name: GitHubAdvancedSecurity_1
+                  identifier: GitHubAdvancedSecurity_1
+                  spec:
+                    mode: orchestration
+                    config: codeql
+                    target:
+                      type: repository
+                      detection: auto
+                    advanced:
+                      log:
+                        level: info
+                    privileged: true
+                    auth:
+                      access_token: <+secrets.getValue("project.GitHub_PAT_for_Security_Scan")>
     - stage:
         name: Push Image
         identifier: PushImage
