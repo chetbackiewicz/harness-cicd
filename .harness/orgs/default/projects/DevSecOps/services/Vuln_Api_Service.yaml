@@ -18,8 +18,8 @@ service:
                   connectorRef: harnesscicd
                   gitFetchType: Branch
                   paths:
-                    - manifests/dev/10-deployment.yaml
-                    - manifests/dev/20-service.yaml
+                    - manifests/dev/templates/10-deployment.yaml
+                    - manifests/dev/templates/20-service.yaml
                   repoName: harness-cicd
                   branch: main
               valuesPaths:

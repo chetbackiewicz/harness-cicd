@@ -1,0 +1,31 @@
+# ServiceAccount + RBAC used by the Harness GitOps Cluster connection.
+# Provides a long-lived token Harness pastes into GitOps > Settings > Clusters
+# (Authentication: Service Account) to manage the target cluster.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: harness-gitops
+  namespace: harness-delegate-ng
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: harness-gitops-cluster-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: harness-gitops
+    namespace: harness-delegate-ng
+---
+# Long-lived (non-expiring) token for the ServiceAccount above (k8s 1.24+).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: harness-gitops-token
+  namespace: harness-delegate-ng
+  annotations:
+    kubernetes.io/service-account.name: harness-gitops
+type: kubernetes.io/service-account-token

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: vuln-api
+description: Helm chart for the vuln-notes-api service, deployed via Harness GitOps (Argo).
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
