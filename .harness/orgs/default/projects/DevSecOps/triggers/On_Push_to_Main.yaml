@@ -1,0 +1,47 @@
+trigger:
+  name: On Push to Main
+  identifier: On_Push_to_Main
+  enabled: true
+  description: Runs CI/CD on pushes to main, excluding the CI's own GitOps manifest bump to avoid self-trigger loops
+  orgIdentifier: default
+  projectIdentifier: DevSecOps
+  pipelineIdentifier: CI_CD_Vuln_Api
+  source:
+    type: Webhook
+    spec:
+      type: Github
+      spec:
+        type: Push
+        spec:
+          connectorRef: harnesscicd
+          autoAbortPreviousExecutions: false
+          payloadConditions:
+            - key: targetBranch
+              operator: Equals
+              value: main
+            # Path-exclusion: skip runs whose changed files are the GitOps
+            # manifest bump committed by the "Update GitOps Manifest" step.
+            # No "DoesNotContain" operator exists, so use Regex negative-lookahead
+            # (per Harness docs: e.g. ^((?!README\.md).)*$).
+            - key: changedFiles
+              operator: Regex
+              value: '^((?!manifests/dev/values\.yaml).)*$'
+          headerConditions: []
+          # Belt-and-suspenders: also skip commits carrying [skip ci]
+          # (the CI bump commit message includes this marker).
+          jexlCondition: <+trigger.payload.head_commit.message> == null || !(<+trigger.payload.head_commit.message> =~ ".*\\[skip ci\\].*")
+          actions: []
+  inputYaml: |
+    pipeline:
+      identifier: CI_CD_Vuln_Api
+      properties:
+        ci:
+          codebase:
+            build:
+              type: branch
+              spec:
+                branch: <+trigger.branch>
+      variables:
+        - name: image_tag
+          type: String
+          value: <+pipeline.sequenceId>

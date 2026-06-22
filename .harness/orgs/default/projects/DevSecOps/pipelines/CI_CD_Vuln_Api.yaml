@@ -188,14 +188,28 @@ pipeline:
                     command: |-
                       set -euo pipefail
                       TAG="<+pipeline.sequenceId>"
-                      sed -i "s|^  tag: .*|  tag: \"${TAG}\"|" manifests/dev/values.yaml
-                      echo "values.yaml now:" && cat manifests/dev/values.yaml
+                      REMOTE="https://<+secrets.getValue("GitHub_Repository_Updater")>@github.com/chetbackiewicz/harness-cicd.git"
                       git config user.email "harness-ci@users.noreply.github.com"
                       git config user.name "Harness CI"
-                      git add manifests/dev/values.yaml
-                      if git diff --cached --quiet; then
-                        echo "No image tag change to commit"
-                        exit 0
-                      fi
-                      git commit -m "ci: bump vuln-api image tag to ${TAG} [skip ci]"
-                      git push "https://<+secrets.getValue("GitHub_Repository_Updater")>@github.com/chetbackiewicz/harness-cicd.git" HEAD:main
+                      n=0
+                      until [ "$n" -ge 5 ]; do
+                        git fetch "$REMOTE" main
+                        git checkout -B main FETCH_HEAD
+                        sed -i "s|^  tag: .*|  tag: \"${TAG}\"|" manifests/dev/values.yaml
+                        if git diff --quiet -- manifests/dev/values.yaml; then
+                          echo "Image tag already ${TAG} on main; nothing to push"
+                          exit 0
+                        fi
+                        echo "values.yaml now:" && cat manifests/dev/values.yaml
+                        git add manifests/dev/values.yaml
+                        git commit -m "ci: bump vuln-api image tag to ${TAG} [skip ci]"
+                        if git push "$REMOTE" HEAD:main; then
+                          echo "Pushed image tag ${TAG} to main"
+                          exit 0
+                        fi
+                        n=$((n+1))
+                        echo "Push rejected (likely concurrent update); retry ${n}/5 after re-fetch..."
+                        sleep 3
+                      done
+                      echo "ERROR: failed to push manifest update after 5 attempts" >&2
+                      exit 1
