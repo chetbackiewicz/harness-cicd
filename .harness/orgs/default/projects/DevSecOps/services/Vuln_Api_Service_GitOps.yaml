@@ -1,0 +1,11 @@
+service:
+  name: Vuln_Api_Service_GitOps
+  identifier: Vuln_Api_Service_GitOps
+  description: ""
+  tags: {}
+  serviceDefinition:
+    type: Kubernetes
+    spec: {}
+  gitOpsEnabled: true
+  orgIdentifier: default
+  projectIdentifier: DevSecOps
