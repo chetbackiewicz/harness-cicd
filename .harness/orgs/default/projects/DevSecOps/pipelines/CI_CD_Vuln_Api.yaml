@@ -131,22 +131,22 @@ pipeline:
                       args: {}
                     mode: orchestration
                     config: default
-              - step:
-                  type: GitHubAdvancedSecurity
-                  name: GitHubAdvancedSecurity_1
-                  identifier: GitHubAdvancedSecurity_1
-                  spec:
-                    mode: orchestration
-                    config: codeql
-                    target:
-                      type: repository
-                      detection: auto
-                    advanced:
-                      log:
-                        level: info
-                    privileged: true
-                    auth:
-                      access_token: <+secrets.getValue("GitHub_PAT_for_Security_Scan")>
+              # - step:
+              #     type: GitHubAdvancedSecurity
+              #     name: GitHubAdvancedSecurity_1
+              #     identifier: GitHubAdvancedSecurity_1
+              #     spec:
+              #       mode: orchestration
+              #       config: codeql
+              #       target:
+              #         type: repository
+              #         detection: auto
+              #       advanced:
+              #         log:
+              #           level: info
+              #       privileged: true
+              #       auth:
+              #         access_token: <+secrets.getValue("GitHub_PAT_for_Security_Scan")>
     - stage:
         name: Push Image
         identifier: PushImage
