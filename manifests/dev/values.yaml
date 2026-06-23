@@ -1,5 +1,4 @@
-# Image is the GitOps source of truth. CI bumps `tag` and commits;
-# Argo syncs the change to the cluster.
+# CI "Push" step changes the tag number to the sequence ID
 image:
   repository: chetback/vuln_api
   tag: "13"
