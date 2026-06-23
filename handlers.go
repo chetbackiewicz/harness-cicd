@@ -38,6 +38,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/users/", s.handleGetUser)
 	s.mux.HandleFunc("/notes", s.handleNotes)
 	s.mux.HandleFunc("/notes/search", s.handleNotesSearch)
+	s.mux.HandleFunc("/notes/sql", s.handleNotesSQL)
 	s.mux.HandleFunc("/files", s.handleFiles)
 	s.mux.HandleFunc("/exec", s.handleExec)
 	s.mux.HandleFunc("/fetch", s.handleFetch)
@@ -171,6 +172,22 @@ func (s *Server) handleNotesSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// VULN: SQL injection — the `title` query parameter is passed straight into a
+// string-formatted SQL query (see Store.SearchNotesSQL).
+func (s *Server) handleNotesSQL(w http.ResponseWriter, r *http.Request) {
+	title := r.URL.Query().Get("title")
+	if title == "" {
+		writeErr(w, http.StatusBadRequest, errors.New("title required"))
+		return
+	}
+	notes, err := s.store.SearchNotesSQL(title)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, notes)
 }
 
 func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
