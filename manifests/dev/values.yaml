@@ -2,4 +2,4 @@
 # Argo syncs the change to the cluster.
 image:
   repository: chetback/vuln_api
-  tag: "11"
+  tag: "13"
