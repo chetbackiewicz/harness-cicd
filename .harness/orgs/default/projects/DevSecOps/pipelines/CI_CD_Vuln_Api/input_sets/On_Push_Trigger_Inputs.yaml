@@ -1,0 +1,18 @@
+inputSet:
+  name: On Push Trigger Inputs
+  identifier: On_Push_Trigger_Inputs
+  orgIdentifier: default
+  projectIdentifier: DevSecOps
+  pipeline:
+    identifier: CI_CD_Vuln_Api
+    variables:
+      - name: image_tag
+        type: String
+        value: <+pipeline.sequenceId>
+    properties:
+      ci:
+        codebase:
+          build:
+            type: branch
+            spec:
+              branch: <+trigger.branch>
