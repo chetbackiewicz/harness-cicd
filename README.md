@@ -74,3 +74,34 @@ COPY --from=build /out/vuln-notes-api /vuln-notes-api
 EXPOSE 8080
 ENTRYPOINT ["/vuln-notes-api"]
 ```
+
+## Minimizing AKS cost (stop/start the cluster)
+
+The AKS cluster (`harness-lab` in resource group `harness`) bills for its node VMs while running.
+The control plane is on the Free tier ($0). To avoid paying for nodes when you're not using the
+cluster, **stop** it at the end of a session and **start** it at the beginning. `az aks stop`
+deallocates all node VMs (compute billing stops) while preserving the cluster, node pool, disks,
+GitOps agent, and workloads.
+
+> Note: this is the only effective lever here because the single `nodepool1` is a **System** pool
+> (it can't scale to 0, and the autoscaler minimum is 1), so only `stop` fully halts compute.
+
+```bash
+# End of session — stop the cluster (deallocate nodes)
+az aks stop  -g harness -n harness-lab --no-wait
+
+# Start of session — start the cluster (re-allocates nodes, pods reschedule)
+az aks start -g harness -n harness-lab
+
+# Check current power state (Running | Stopped)
+az aks show -g harness -n harness-lab --query powerState.code -o tsv
+```
+
+After `start`, give the nodes a minute or two to become `Ready` and for the Harness delegate,
+GitOps agent, and `vuln-api` pods to reschedule:
+
+```bash
+kubectl get nodes
+kubectl get pods -n harness-delegate-ng
+```
+
