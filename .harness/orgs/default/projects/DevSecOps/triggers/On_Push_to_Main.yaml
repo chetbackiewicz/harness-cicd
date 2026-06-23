@@ -29,7 +29,7 @@ trigger:
           headerConditions: []
           # Belt-and-suspenders: also skip commits carrying [skip ci]
           # (the CI bump commit message includes this marker).
-          jexlCondition: <+trigger.payload.head_commit.message> == null || !(<+trigger.payload.head_commit.message> =~ ".*\\[skip ci\\].*")
+          jexlCondition: <+eventPayload.head_commit.message> == null || !(<+eventPayload.head_commit.message> =~ ".*\\[skip ci\\].*")
           actions: []
   # The pipeline is stored in Git (Git Experience / remote). Triggers for a
   # remote pipeline must declare which branch to read the pipeline + input set
