@@ -1,0 +1,20 @@
+inputSet:
+  name: On Push Trigger Inputs
+  identifier: On_Push_Trigger_Inputs
+  orgIdentifier: default
+  projectIdentifier: DevSecOps
+  description: Runtime inputs supplied by the On Push to Main webhook trigger (Git Experience requires an Input Set stored in the repo).
+  tags: {}
+  pipeline:
+    identifier: CI_CD_Vuln_Api
+    properties:
+      ci:
+        codebase:
+          build:
+            type: branch
+            spec:
+              branch: <+trigger.branch>
+    variables:
+      - name: image_tag
+        type: String
+        value: <+pipeline.sequenceId>
