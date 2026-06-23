@@ -31,17 +31,10 @@ trigger:
           # (the CI bump commit message includes this marker).
           jexlCondition: <+trigger.payload.head_commit.message> == null || !(<+trigger.payload.head_commit.message> =~ ".*\\[skip ci\\].*")
           actions: []
-  inputYaml: |
-    pipeline:
-      identifier: CI_CD_Vuln_Api
-      properties:
-        ci:
-          codebase:
-            build:
-              type: branch
-              spec:
-                branch: <+trigger.branch>
-      variables:
-        - name: image_tag
-          type: String
-          value: <+pipeline.sequenceId>
+  # The pipeline is stored in Git (Git Experience / remote). Triggers for a
+  # remote pipeline must declare which branch to read the pipeline + input set
+  # from, and supply runtime inputs via an Input Set stored in the same repo
+  # (inline inputYaml is not used for remote pipelines).
+  pipelineBranchName: <+trigger.branch>
+  inputSetRefs:
+    - On_Push_Trigger_Inputs
