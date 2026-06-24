@@ -78,6 +78,9 @@ pipeline:
                     advanced:
                       log:
                         level: info
+                  enforce:
+                    policySets:
+                      - policy_set_security_tests_severity_found_in_app_layer_06_22_14_56
               - step:
                   type: Owasp
                   name: Owasp_1
@@ -91,6 +94,9 @@ pipeline:
                     advanced:
                       log:
                         level: info
+                  enforce:
+                    policySets:
+                      - policy_set_security_tests_severity_found_in_app_layer_06_22_14_56
               - step:
                   type: Gitleaks
                   name: Gitleaks_1
@@ -104,6 +110,9 @@ pipeline:
                     advanced:
                       log:
                         level: info
+                  enforce:
+                    policySets:
+                      - policy_set_security_tests_severity_found_in_app_layer_06_22_14_56
     - stage:
         name: Push Image
         identifier: PushImage
