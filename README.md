@@ -79,8 +79,8 @@ To allow the pipeline to pass despite known findings (e.g. during triage), raise
 
 ## AKS Cluster Controls
 
-The AKS cluster (`harness-lab` in resource group `harness`) bills for its node VMs while running.
-The control plane is on the Free tier ($0). To avoid paying for nodes when you're not using the
+The AKS cluster bills for its node VMs while running.
+The control plane is on the Free tier. To avoid paying for nodes when you're not using the
 cluster, **stop** it at the end of a session and **start** it at the beginning. `az aks stop`
 deallocates all node VMs (compute billing stops) while preserving the cluster, node pool, disks,
 GitOps agent, and workloads.
