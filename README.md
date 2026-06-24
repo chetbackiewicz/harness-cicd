@@ -40,7 +40,7 @@ The Harness pipeline has four stages that run in sequence:
 | ----- | ---- | ------- |
 | `BuildAndTest` | CI | Compile and run Go tests via the `Build_and_Test` template |
 | `Security_Scan` | **SecurityTests** | SAST (Semgrep), SCA (OWASP), and secrets (Gitleaks) scans |
-| `PushImage` | CI | Build and push Docker image to `chetback/vuln_api` on DockerHub |
+| `PushImage` | CI | Build and push Docker image to `chetback/vuln_api` on DockerHub and Updates the values.yaml with updated image tag, trigger GitOps update |
 
 ### Security scanning & OPA governance
 
