@@ -46,7 +46,7 @@ The Harness pipeline has four stages that run in sequence:
 
 The `Security_Scan` stage uses `type: SecurityTests`, which enables native Harness STO ↔ OPA integration. Scan results are automatically submitted to the Harness OPA server as `securityTestData` at pipeline run time — no explicit Policy step is required in the stage.
 
-An OPA Policy Set is applied to the **Security Tests** entity on the **On Step** event. The policy (package `securityTests`) blocks the pipeline if any `APP_CRITICAL` or `APP_HIGH` output variable is `> 0`:
+An OPA Policy Set is applied to the **Security Tests** entity on the **On Step** event. The policy (package `securityTests`) blocks the pipeline if any Critical or High is found, and >10 Medium Severity vulnerabilities are found.
 
 ```rego
 deny_list := [
