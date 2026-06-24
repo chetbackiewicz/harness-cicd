@@ -1,4 +1,4 @@
 # CI "Push" step changes the tag number to the sequence ID
 image:
   repository: chetback/vuln_api
-  tag: "16"
+  tag: "17"
