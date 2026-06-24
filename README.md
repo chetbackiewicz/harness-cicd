@@ -75,6 +75,32 @@ EXPOSE 8080
 ENTRYPOINT ["/vuln-notes-api"]
 ```
 
+## CI/CD Pipeline (`CI_CD_Vuln_Api`)
+
+The Harness pipeline has four stages that run in sequence:
+
+| Stage | Type | Purpose |
+| ----- | ---- | ------- |
+| `BuildAndTest` | CI | Compile and run Go tests via the `Build_and_Test` template |
+| `Security_Scan` | **SecurityTests** | SAST (Semgrep), SCA (OWASP), and secrets (Gitleaks) scans |
+| `PushImage` | CI | Build and push Docker image to `chetback/vuln_api` on DockerHub |
+| `Deploy` | CD | Rolling deploy to AKS namespace `harness-delegate-ng` |
+
+### Security scanning & OPA governance
+
+The `Security_Scan` stage uses `type: SecurityTests`, which enables native Harness STO ↔ OPA integration. Scan results are automatically submitted to the Harness OPA server as `securityTestData` at pipeline run time — no explicit Policy step is required in the stage.
+
+An OPA Policy Set is applied to the **Pipeline** entity on the **On Run** event. The policy (package `securityTests`) blocks the pipeline if any `APP_CRITICAL` or `APP_HIGH` output variable is `> 0`:
+
+```rego
+deny_list := [
+  { "name": "APP_CRITICAL", "value": 0, "operator": ">" },
+  { "name": "APP_HIGH",     "value": 0, "operator": ">" }
+]
+```
+
+To allow the pipeline to pass despite known findings (e.g. during triage), raise the threshold value or temporarily remove the entry from `deny_list` in the Policy.
+
 ## Minimizing AKS cost (stop/start the cluster)
 
 The AKS cluster (`harness-lab` in resource group `harness`) bills for its node VMs while running.
