@@ -49,10 +49,31 @@ The `Security_Scan` stage uses `type: SecurityTests`, which enables native Harne
 An OPA Policy Set is applied to the **Security Tests** entity on the **On Step** event. The policy (package `securityTests`) blocks the pipeline if any Critical or High is found, and >10 Medium Severity vulnerabilities are found.
 
 ```rego
-deny_list := [
-  { "name": "APP_CRITICAL", "value": 0, "operator": ">" },
-  { "name": "APP_HIGH",     "value": 0, "operator": ">" }
-]
+# Adjust allowed thresholds as needed
+max_critical := 0
+max_high := 0
+max_medium := 5
+
+deny[msg] {
+    input[i].name == "output"
+    count := to_number(input[i].outcome.outputVariables.CRITICAL)
+    count > max_critical
+    msg := sprintf("Pipeline blocked: %d Critical vulnerabilities exceeds threshold of %d", [count, max_critical])
+}
+
+deny[msg] {
+    input[i].name == "output"
+    count := to_number(input[i].outcome.outputVariables.HIGH)
+    count > max_high
+    msg := sprintf("Pipeline blocked: %d High vulnerabilities exceeds threshold of %d", [count, max_high])
+}
+
+deny[msg] {
+    input[i].name == "output"
+    count := to_number(input[i].outcome.outputVariables.MEDIUM)
+    count > max_medium
+    msg := sprintf("Pipeline blocked: %d Medium vulnerabilities exceeds threshold of %d", [count, max_medium])
+}
 ```
 
 To allow the pipeline to pass despite known findings (e.g. during triage), raise the threshold value or temporarily remove the entry from `deny_list` in the Policy.
