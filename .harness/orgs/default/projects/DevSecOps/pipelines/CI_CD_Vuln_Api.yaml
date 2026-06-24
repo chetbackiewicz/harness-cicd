@@ -157,7 +157,11 @@ pipeline:
                   name: Update Release Repo
                   identifier: updateReleaseRepo
                   timeout: 10m
-                  spec: {}
+                  spec:
+                    variables:
+                      - name: image.tag
+                        type: String
+                        value: <+pipeline.variables.image_tag>
               - step:
                   type: MergePR
                   name: Merge PR
@@ -166,11 +170,27 @@ pipeline:
                     deleteSourceBranch: true
                   timeout: 10m
               - step:
-                  type: GitOpsFetchLinkedApps
-                  name: Fetch Linked Apps
-                  identifier: fetchLinkedApps
+                  type: GitOpsSync
+                  name: GitOps Sync
+                  identifier: gitopsSync
                   timeout: 10m
-                  spec: {}
+                  spec:
+                    prune: false
+                    dryRun: false
+                    applyOnly: false
+                    forceApply: false
+                    applicationsList:
+                      - applicationName: vuln-api
+                        agentId: harnessagent
+                    retryStrategy: {}
+                    retry: false
+                    syncOptions:
+                      skipSchemaValidation: false
+                      autoCreateNamespace: false
+                      pruneResourcesAtLast: false
+                      applyOutOfSyncOnly: false
+                      replaceResources: false
+                      prunePropagationPolicy: foreground
             rollbackSteps: []
           service:
             serviceRef: Vuln_Api_Service_GitOps
