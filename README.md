@@ -13,7 +13,7 @@ curl -s http://localhost:8080/health
 ## Test
 
 ```bash
-go test ./...                            # 47 tests, ~250ms
+go test ./...                           
 ```
 
 
