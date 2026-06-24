@@ -77,7 +77,7 @@ deny[msg] {
 
 To allow the pipeline to pass despite known findings (e.g. during triage), raise the threshold value or temporarily remove the entry from `deny_list` in the Policy.
 
-## Minimizing AKS cost (stop/start the cluster)
+## AKS Cluster Controls
 
 The AKS cluster (`harness-lab` in resource group `harness`) bills for its node VMs while running.
 The control plane is on the Free tier ($0). To avoid paying for nodes when you're not using the
