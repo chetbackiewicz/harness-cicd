@@ -174,17 +174,6 @@ pipeline:
             rollbackSteps: []
           service:
             serviceRef: Vuln_Api_Service_GitOps
-            serviceInputs:
-              serviceDefinition:
-                type: Kubernetes
-                spec:
-                  artifacts:
-                    primary:
-                      sources:
-                        - identifier: dockerhub_vuln_api
-                          type: DockerRegistry
-                          spec:
-                            tag: <+input>
           environment:
             environmentRef: Development
             deployToAll: true
