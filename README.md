@@ -1,8 +1,7 @@
 # vuln-notes-api
 
 A deliberately vulnerable Go microservice used as a target for CI/CD security
-scans (SAST, SCA, Secret Detection). Pure stdlib + an in-memory store, so it compiles in
-seconds. 
+scans (SAST, SCA, Secret Detection). 
 
 ## Run
 
