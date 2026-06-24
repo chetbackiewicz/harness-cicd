@@ -50,103 +50,60 @@ pipeline:
                     templateRef: Build_and_Test
                     versionLabel: v1
     - stage:
-        name: Security Tests
-        identifier: SecurityTests
-        description: SAST, SCA, secrets, and CodeQL scans — warn-only, does not block deploy
-        type: CI
-        timeout: 30m
+        name: Security_Scan
+        identifier: Security_Scan
+        description: ""
+        type: SecurityTests
         spec:
           cloneCodebase: true
+          caching:
+            enabled: true
+            override: true
+          buildIntelligence:
+            enabled: true
           infrastructure:
-            type: KubernetesDirect
-            spec:
-              connectorRef: aksclusterdelegate
-              namespace: harness-delegate-ng
-              automountServiceAccountToken: true
-              os: Linux
+            useFromStage: BuildAndTest
           execution:
             steps:
-              - parallel:
-                  - step:
-                      type: Run
-                      name: Semgrep SAST
-                      identifier: semgrep_sast
-                      template:
-                        templateRef: Semgrep_Scan
-                        versionLabel: v1
               - step:
                   type: Semgrep
-                  name: Semgrep_2
-                  identifier: Semgrep_2
+                  name: Semgrep_Scam
+                  identifier: Semgrep_Scam
                   spec:
+                    mode: orchestration
+                    config: default
                     target:
-                      detection: auto
                       type: repository
+                      detection: auto
                     advanced:
                       log:
                         level: info
-                      args: {}
+              - step:
+                  type: Owasp
+                  name: Owasp_1
+                  identifier: Owasp_1
+                  spec:
                     mode: orchestration
                     config: default
-              - parallel:
-                  - step:
-                      type: Owasp
-                      name: Owasp_1
-                      identifier: Owasp_1
-                      spec:
-                        target:
-                          detection: auto
-                          type: repository
-                        advanced:
-                          log:
-                            level: info
-                          args: {}
-                        mode: orchestration
-                        config: default
-                  - step:
-                      type: OsvScanner
-                      name: OsvScanner_1
-                      identifier: OsvScanner_1
-                      spec:
-                        target:
-                          detection: auto
-                          type: repository
-                        advanced:
-                          log:
-                            level: info
-                          args: {}
-                        mode: orchestration
-                        config: default
+                    target:
+                      type: repository
+                      detection: auto
+                    advanced:
+                      log:
+                        level: info
               - step:
                   type: Gitleaks
                   name: Gitleaks_1
                   identifier: Gitleaks_1
                   spec:
+                    mode: orchestration
+                    config: default
                     target:
-                      detection: auto
                       type: repository
+                      detection: auto
                     advanced:
                       log:
                         level: info
-                      args: {}
-                    mode: orchestration
-                    config: default
-              # - step:
-              #     type: GitHubAdvancedSecurity
-              #     name: GitHubAdvancedSecurity_1
-              #     identifier: GitHubAdvancedSecurity_1
-              #     spec:
-              #       mode: orchestration
-              #       config: codeql
-              #       target:
-              #         type: repository
-              #         detection: auto
-              #       advanced:
-              #         log:
-              #           level: info
-              #       privileged: true
-              #       auth:
-              #         access_token: <+secrets.getValue("GitHub_PAT_for_Security_Scan")>
     - stage:
         name: Push Image
         identifier: PushImage
