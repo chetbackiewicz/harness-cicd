@@ -179,3 +179,56 @@ pipeline:
                       done
                       echo "ERROR: failed to push manifest update after 5 attempts" >&2
                       exit 1
+    - stage:
+        name: GitOps Deploy
+        identifier: GitOps_Deploy
+        description: ""
+        type: Deployment
+        spec:
+          deploymentType: Kubernetes
+          gitOpsEnabled: true
+          execution:
+            steps:
+              - step:
+                  type: GitOpsUpdateReleaseRepo
+                  name: Update Release Repo
+                  identifier: updateReleaseRepo
+                  timeout: 10m
+                  spec: {}
+              - step:
+                  type: MergePR
+                  name: Merge PR
+                  identifier: mergePR
+                  spec:
+                    deleteSourceBranch: true
+                  timeout: 10m
+              - step:
+                  type: GitOpsFetchLinkedApps
+                  name: Fetch Linked Apps
+                  identifier: fetchLinkedApps
+                  timeout: 10m
+                  spec: {}
+            rollbackSteps: []
+          service:
+            serviceRef: Vuln_Api_Service_GitOps
+            serviceInputs:
+              serviceDefinition:
+                type: Kubernetes
+                spec:
+                  artifacts:
+                    primary:
+                      sources:
+                        - identifier: dockerhub_vuln_api
+                          type: DockerRegistry
+                          spec:
+                            tag: <+input>
+          environment:
+            environmentRef: Development
+            deployToAll: true
+        tags: {}
+        failureStrategies:
+          - onFailure:
+              errors:
+                - AllErrors
+              action:
+                type: StageRollback
