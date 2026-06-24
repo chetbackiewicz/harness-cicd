@@ -34,7 +34,7 @@ service:
               spec:
                 connectorRef: Dockerhub
                 imagePath: chetback/vuln_api
-                tag: <+input>
+                tag: <+pipeline.variables.image_tag>
   gitOpsEnabled: true
   orgIdentifier: default
   projectIdentifier: DevSecOps
